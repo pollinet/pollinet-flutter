@@ -1,15 +1,16 @@
-name: pollinet_sdk
-description: "Flutter plugin for Pollinet SDK - offline Solana transaction propagation over BLE mesh networks"
-version: 0.0.1
-homepage: https://github.com/pollinet/pollinet
+name: pollinet_flutter
+description: "Flutter app for Pollinet SDK - offline Solana transaction propagation over BLE mesh networks"
+publish_to: 'none'
+
+version: 1.0.0+1
 
 environment:
   sdk: ^3.10.7
-  flutter: ">=1.17.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:
