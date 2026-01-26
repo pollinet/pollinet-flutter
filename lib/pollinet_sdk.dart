@@ -47,6 +47,74 @@ class PollinetSdk {
   }
 
   // =========================================================================
+  // Permission Management (Android 12+)
+  // =========================================================================
+
+  /// Check the status of required BLE permissions
+  /// 
+  /// Returns a map of permission names to their status ("granted" or "denied").
+  /// On Android 12+ (API 31+), checks BLUETOOTH_SCAN, BLUETOOTH_ADVERTISE, and BLUETOOTH_CONNECT.
+  /// On older versions, checks BLUETOOTH, BLUETOOTH_ADMIN, and location permissions.
+  static Future<Map<String, String>> checkPermissions() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('checkPermissions');
+      if (result == null) {
+        return {};
+      }
+      return Map<String, String>.from(result);
+    } on PlatformException catch (e) {
+      throw PollinetException(e.code, e.message ?? 'Unknown error');
+    }
+  }
+
+  /// Request required BLE permissions
+  /// 
+  /// On Android 12+ (API 31+), requests BLUETOOTH_SCAN, BLUETOOTH_ADVERTISE, and BLUETOOTH_CONNECT.
+  /// On older versions, requests BLUETOOTH, BLUETOOTH_ADMIN, and location permissions.
+  /// 
+  /// Returns a map of permission names to their status after the request.
+  /// Note: This will show a system permission dialog to the user.
+  static Future<Map<String, String>> requestPermissions() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('requestPermissions');
+      if (result == null) {
+        return {};
+      }
+      return Map<String, String>.from(result);
+    } on PlatformException catch (e) {
+      throw PollinetException(e.code, e.message ?? 'Unknown error');
+    }
+  }
+
+  /// Check if the app is exempted from battery optimization
+  /// 
+  /// Returns `true` if exempted, `false` otherwise.
+  /// On Android M (API 23) and below, always returns `true`.
+  static Future<bool> checkBatteryOptimization() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('checkBatteryOptimization');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      throw PollinetException(e.code, e.message ?? 'Unknown error');
+    }
+  }
+
+  /// Request exemption from battery optimization
+  /// 
+  /// Opens the system settings to request battery optimization exemption.
+  /// This is important for maintaining BLE mesh connectivity when the app is in the background.
+  /// 
+  /// Returns `true` if the request was initiated successfully.
+  static Future<bool> requestBatteryOptimization() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('requestBatteryOptimization');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      throw PollinetException(e.code, e.message ?? 'Unknown error');
+    }
+  }
+
+  // =========================================================================
   // Transport API
   // =========================================================================
 

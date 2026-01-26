@@ -1,0 +1,64 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:1:1-17:12
+INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:1:1-17:12
+	package
+		INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:1:11-69
+uses-permission#android.permission.BLUETOOTH
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:5-95
+	android:maxSdkVersion
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:66-92
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:22-65
+uses-permission#android.permission.BLUETOOTH_ADMIN
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:5-101
+	android:maxSdkVersion
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:72-98
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:22-71
+uses-permission#android.permission.BLUETOOTH_SCAN
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:5-120
+	android:usesPermissionFlags
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:71-117
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:22-70
+uses-permission#android.permission.BLUETOOTH_ADVERTISE
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:8:5-78
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:8:22-75
+uses-permission#android.permission.BLUETOOTH_CONNECT
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:9:5-76
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:9:22-73
+uses-permission#android.permission.ACCESS_FINE_LOCATION
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:5-106
+	android:maxSdkVersion
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:77-103
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:22-76
+uses-permission#android.permission.ACCESS_COARSE_LOCATION
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:5-108
+	android:maxSdkVersion
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:79-105
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:22-78
+uses-permission#android.permission.INTERNET
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:13:5-67
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:13:22-64
+uses-feature#android.hardware.bluetooth_le
+ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:5-90
+	android:required
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:64-87
+	android:name
+		ADDED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:19-63
+uses-sdk
+INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml
+INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml

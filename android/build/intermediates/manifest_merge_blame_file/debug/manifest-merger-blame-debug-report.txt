@@ -1,0 +1,58 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="xyz.pollinet.sdk.flutter" >
+4
+5    <uses-sdk android:minSdkVersion="29" />
+6    <!-- BLE Permissions for the plugin -->
+7    <!-- Android 11 and below -->
+8    <uses-permission
+8-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:5-95
+9        android:name="android.permission.BLUETOOTH"
+9-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:22-65
+10        android:maxSdkVersion="30" />
+10-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:4:66-92
+11    <uses-permission
+11-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:5-101
+12        android:name="android.permission.BLUETOOTH_ADMIN"
+12-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:22-71
+13        android:maxSdkVersion="30" />
+13-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:5:72-98
+14    <!-- Android 12+ (API 31+) -->
+15    <uses-permission
+15-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:5-120
+16        android:name="android.permission.BLUETOOTH_SCAN"
+16-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:22-70
+17        android:usesPermissionFlags="neverForLocation" />
+17-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:7:71-117
+18    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+18-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:8:5-78
+18-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:8:22-75
+19    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+19-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:9:5-76
+19-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:9:22-73
+20    <!-- Location permissions (needed for BLE scanning on Android 11 and below) -->
+21    <uses-permission
+21-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:5-106
+22        android:name="android.permission.ACCESS_FINE_LOCATION"
+22-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:22-76
+23        android:maxSdkVersion="30" />
+23-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:11:77-103
+24    <uses-permission
+24-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:5-108
+25        android:name="android.permission.ACCESS_COARSE_LOCATION"
+25-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:22-78
+26        android:maxSdkVersion="30" />
+26-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:12:79-105
+27    <uses-permission android:name="android.permission.INTERNET" />
+27-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:13:5-67
+27-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:13:22-64
+28
+29    <!-- BLE features -->
+30    <uses-feature
+30-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:5-90
+31        android:name="android.hardware.bluetooth_le"
+31-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:19-63
+32        android:required="true" />
+32-->/Users/oghenekparoboreminokanju/Pollinet Project/pollinet-flutter/android/src/main/AndroidManifest.xml:16:64-87
+33
+34</manifest>
