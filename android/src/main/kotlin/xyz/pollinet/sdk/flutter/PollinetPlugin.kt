@@ -2,10 +2,15 @@ package xyz.pollinet.sdk.flutter
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Binder
 import android.os.Build
+import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
@@ -16,24 +21,54 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import xyz.pollinet.sdk.*
 
 class PollinetPlugin : FlutterPlugin, ActivityAware {
     private lateinit var channel: MethodChannel
     private var activity: Activity? = null
+    private var applicationContext: Context? = null
     private var sdk: PolliNetSDK? = null
+    private var bleService: BleService? = null
     private var isInitialized = false
-    
-    // Permission request code
+    private var serviceBound = false
+
     private val PERMISSION_REQUEST_CODE = 1001
-    
-    // Pending permission result callback
     private var pendingPermissionResult: MethodChannel.Result? = null
 
+    // Deferred that completes when BleService binds
+    private var serviceDeferred = CompletableDeferred<BleService>()
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            android.util.Log.d("PollinetPlugin", "BleService connected")
+            val localBinder = binder as? BleService.LocalBinder
+            val service = localBinder?.getService()
+            if (service != null) {
+                bleService = service
+                serviceBound = true
+                if (!serviceDeferred.isCompleted) {
+                    serviceDeferred.complete(service)
+                }
+            } else {
+                android.util.Log.e("PollinetPlugin", "Failed to get BleService from binder")
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            android.util.Log.w("PollinetPlugin", "BleService disconnected")
+            bleService = null
+            serviceBound = false
+            serviceDeferred = CompletableDeferred()
+        }
+    }
+
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        applicationContext = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, "pollinet_sdk")
         channel.setMethodCallHandler { call, result ->
             handleMethodCall(call, result)
@@ -42,6 +77,8 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        unbindBleService()
+        applicationContext = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -74,6 +111,62 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
         activity = null
     }
 
+    // =========================================================================
+    // BleService lifecycle
+    // =========================================================================
+
+    private fun startAndBindBleService(context: Context) {
+        val intent = Intent(context, BleService::class.java).apply {
+            action = BleService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        android.util.Log.d("PollinetPlugin", "BleService start + bind requested")
+    }
+
+    private fun unbindBleService() {
+        if (serviceBound) {
+            try {
+                applicationContext?.unbindService(serviceConnection)
+            } catch (e: Exception) {
+                android.util.Log.w("PollinetPlugin", "Error unbinding BleService: ${e.message}")
+            }
+            serviceBound = false
+            bleService = null
+        }
+    }
+
+    private fun stopBleService() {
+        val ctx = applicationContext ?: return
+        unbindBleService()
+        try {
+            val intent = Intent(ctx, BleService::class.java).apply {
+                action = BleService.ACTION_STOP
+            }
+            ctx.stopService(intent)
+        } catch (e: Exception) {
+            android.util.Log.w("PollinetPlugin", "Error stopping BleService: ${e.message}")
+        }
+    }
+
+    /**
+     * Access the single PolliNetSDK instance owned by BleService.
+     * BleService.sdk is public (with private set), so direct access works.
+     * Both the plugin and BleService share this single Rust FFI handle
+     * so queues, state, and transport are unified.
+     */
+    private fun getSdkFromBleService(): PolliNetSDK? {
+        return bleService?.sdk
+    }
+
+    // =========================================================================
+    // Method call handler
+    // =========================================================================
+
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "checkPermissions" -> {
@@ -85,10 +178,12 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                 requestPermissions(result)
             }
             "initialize" -> {
-                android.util.Log.d("PollinetPlugin", "Initialize method called")
+                android.util.Log.d("PollinetPlugin", "Initialize method called (BleService path)")
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        android.util.Log.d("PollinetPlugin", "Starting initialization in coroutine")
+                        val ctx = applicationContext
+                            ?: throw IllegalStateException("Application context not available")
+
                         val configMap = call.argument<Map<String, Any>>("config")
                         val config = if (configMap != null) {
                             SdkConfig(
@@ -107,28 +202,48 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 storageDirectory = null
                             )
                         }
-                        
-                        android.util.Log.d("PollinetPlugin", "Calling PolliNetSDK.initialize()")
-                        val initResult = PolliNetSDK.initialize(config)
-                        android.util.Log.d("PollinetPlugin", "PolliNetSDK.initialize() returned")
-                        
-                        initResult.fold(
-                            onSuccess = { initializedSdk ->
-                                android.util.Log.d("PollinetPlugin", "SDK initialized successfully")
-                                sdk = initializedSdk
-                                isInitialized = true
-                                android.util.Log.d("PollinetPlugin", "Calling result.success(true)")
-                                result.success(true)
-                                android.util.Log.d("PollinetPlugin", "result.success() called")
+
+                        // Reset deferred if we're re-initializing
+                        if (serviceDeferred.isCompleted) {
+                            serviceDeferred = CompletableDeferred()
+                        }
+
+                        // 1. Start BleService as a foreground service and bind to it
+                        android.util.Log.d("PollinetPlugin", "Starting BleService...")
+                        startAndBindBleService(ctx)
+
+                        // 2. Wait for service binding (timeout 15s)
+                        android.util.Log.d("PollinetPlugin", "Waiting for BleService binding...")
+                        val service = withTimeout(15_000) { serviceDeferred.await() }
+                        android.util.Log.d("PollinetPlugin", "BleService bound, calling initializeSdk...")
+
+                        // 3. Initialize SDK inside BleService (creates single Rust FFI handle,
+                        //    starts event worker, sending loop, network listener, auto-save)
+                        service.initializeSdk(config).fold(
+                            onSuccess = {
+                                // 4. Get the SDK reference from BleService via reflection
+                                //    so Dart method calls use the same Rust handle as BLE transport
+                                sdk = getSdkFromBleService()
+                                if (sdk != null) {
+                                    isInitialized = true
+                                    android.util.Log.d("PollinetPlugin", "SDK initialized via BleService — BLE transport active")
+                                    result.success(true)
+                                } else {
+                                    android.util.Log.e("PollinetPlugin", "SDK initialized but reflection failed")
+                                    result.error("INIT_ERROR", "SDK initialized but could not obtain reference", null)
+                                }
                             },
                             onFailure = { error ->
-                                android.util.Log.e("PollinetPlugin", "SDK initialization failed: ${error.message}")
+                                android.util.Log.e("PollinetPlugin", "BleService.initializeSdk failed: ${error.message}")
                                 result.error("INIT_ERROR", "Failed to initialize Pollinet SDK: ${error.message}", null)
                             }
                         )
+                    } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                        android.util.Log.e("PollinetPlugin", "BleService binding timed out")
+                        result.error("INIT_ERROR", "BleService binding timed out — check foreground service permissions", null)
                     } catch (e: Exception) {
                         android.util.Log.e("PollinetPlugin", "Exception during initialization: ${e.message}", e)
-                        result.error("INIT_ERROR", "Failed to initialize Pollinet SDK: ${e.message}", e)
+                        result.error("INIT_ERROR", "Failed to initialize Pollinet SDK: ${e.message}", null)
                     }
                 }
             }
@@ -137,6 +252,7 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                     sdk?.shutdown()
                     sdk = null
                     isInitialized = false
+                    stopBleService()
                     result.success(true)
                 } catch (e: Exception) {
                     result.error("SHUTDOWN_ERROR", "Failed to shutdown Pollinet SDK: ${e.message}", e)
@@ -159,7 +275,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
             else -> {
                 handleAsyncCall(result) {
                     when (call.method) {
+                        // =============================================================
                         // Transport API
+                        // =============================================================
                         "pushInbound" -> {
                             val dataBase64 = call.argument<String>("data")
                                 ?: throw IllegalArgumentException("data is required")
@@ -202,6 +320,10 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 onFailure = { throw it }
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
+
+                        // =============================================================
+                        // Transaction Builders
+                        // =============================================================
                         "createUnsignedTransaction" -> {
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
@@ -232,6 +354,39 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                     )
                                 } catch (e: Exception) {
                                     result.error("TX_ERROR", "Failed to create transaction: ${e.message}", e)
+                                }
+                            }
+                        }
+                        "createUnsignedSplTransaction" -> {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    val request = call.argument<Map<String, Any>>("request")
+                                        ?: throw IllegalArgumentException("request is required")
+                                    val senderWallet = request["senderWallet"] as? String
+                                        ?: throw IllegalArgumentException("senderWallet is required")
+                                    val recipientWallet = request["recipientWallet"] as? String
+                                        ?: throw IllegalArgumentException("recipientWallet is required")
+                                    val feePayer = request["feePayer"] as? String
+                                        ?: throw IllegalArgumentException("feePayer is required")
+                                    val mintAddress = request["mintAddress"] as? String
+                                        ?: throw IllegalArgumentException("mintAddress is required")
+                                    val amount = (request["amount"] as? Number)?.toLong()
+                                        ?: throw IllegalArgumentException("amount is required")
+                                    val nonceAccount = request["nonceAccount"] as? String
+
+                                    sdk?.createUnsignedSplTransaction(
+                                        senderWallet = senderWallet,
+                                        recipientWallet = recipientWallet,
+                                        feePayer = feePayer,
+                                        mintAddress = mintAddress,
+                                        amount = amount,
+                                        nonceAccount = nonceAccount
+                                    )?.fold(
+                                        onSuccess = { result.success(it) },
+                                        onFailure = { result.error("TX_ERROR", "Failed to create SPL transaction: ${it.message}", null) }
+                                    ) ?: result.error("NOT_INITIALIZED", "SDK not initialized", null)
+                                } catch (e: Exception) {
+                                    result.error("TX_ERROR", "Failed to create SPL transaction: ${e.message}", null)
                                 }
                             }
                         }
@@ -269,7 +424,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             }
                         }
 
-                        // Signature helpers
+                        // =============================================================
+                        // Signature Helpers
+                        // =============================================================
                         "prepareSignPayload" -> {
                             val base64Tx = call.argument<String>("base64Tx")
                                 ?: throw IllegalArgumentException("base64Tx is required")
@@ -298,7 +455,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
 
+                        // =============================================================
                         // Fragmentation
+                        // =============================================================
                         "fragment" -> {
                             val txBytesBase64 = call.argument<String>("txBytes")
                                 ?: throw IllegalArgumentException("txBytes is required")
@@ -322,42 +481,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
 
-                        // SPL transaction
-                        "createUnsignedSplTransaction" -> {
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    val request = call.argument<Map<String, Any>>("request")
-                                        ?: throw IllegalArgumentException("request is required")
-                                    val senderWallet = request["senderWallet"] as? String
-                                        ?: throw IllegalArgumentException("senderWallet is required")
-                                    val recipientWallet = request["recipientWallet"] as? String
-                                        ?: throw IllegalArgumentException("recipientWallet is required")
-                                    val feePayer = request["feePayer"] as? String
-                                        ?: throw IllegalArgumentException("feePayer is required")
-                                    val mintAddress = request["mintAddress"] as? String
-                                        ?: throw IllegalArgumentException("mintAddress is required")
-                                    val amount = (request["amount"] as? Number)?.toLong()
-                                        ?: throw IllegalArgumentException("amount is required")
-                                    val nonceAccount = request["nonceAccount"] as? String
-
-                                    sdk?.createUnsignedSplTransaction(
-                                        senderWallet = senderWallet,
-                                        recipientWallet = recipientWallet,
-                                        feePayer = feePayer,
-                                        mintAddress = mintAddress,
-                                        amount = amount,
-                                        nonceAccount = nonceAccount
-                                    )?.fold(
-                                        onSuccess = { result.success(it) },
-                                        onFailure = { result.error("TX_ERROR", "Failed to create SPL transaction: ${it.message}", null) }
-                                    ) ?: result.error("NOT_INITIALIZED", "SDK not initialized", null)
-                                } catch (e: Exception) {
-                                    result.error("TX_ERROR", "Failed to create SPL transaction: ${e.message}", null)
-                                }
-                            }
-                        }
-
+                        // =============================================================
                         // Offline Bundle Management
+                        // =============================================================
                         "prepareOfflineBundle" -> {
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
@@ -437,7 +563,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             }
                         }
 
+                        // =============================================================
                         // MWA unsigned offline transactions
+                        // =============================================================
                         "createUnsignedOfflineTransaction" -> {
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
@@ -616,7 +744,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             }
                         }
 
+                        // =============================================================
                         // BLE Mesh Operations
+                        // =============================================================
                         "fragmentTransaction" -> {
                             val txBytesBase64 = call.argument<String>("transactionBytes")
                                 ?: throw IllegalArgumentException("transactionBytes is required")
@@ -691,7 +821,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
 
+                        // =============================================================
                         // Autonomous Transaction Relay
+                        // =============================================================
                         "pushReceivedTransaction" -> {
                             val txBytesBase64 = call.argument<String>("transactionBytes")
                                 ?: throw IllegalArgumentException("transactionBytes is required")
@@ -768,38 +900,69 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
 
-                        // Queue Management
+                        // =============================================================
+                        // Queue Management — uses BleService.queueSignedTransaction
+                        // for outbound ops to trigger BLE sending loop
+                        // =============================================================
                         "pushOutboundTransaction" -> {
                             val txBytesBase64 = call.argument<String>("txBytes")
                                 ?: throw IllegalArgumentException("txBytes is required")
-                            val txId = call.argument<String>("txId")
-                                ?: throw IllegalArgumentException("txId is required")
-                            val fragmentsRaw = call.argument<List<Map<String, Any>>>("fragments")
-                                ?: throw IllegalArgumentException("fragments is required")
-                            val priorityStr = call.argument<String>("priority") ?: "NORMAL"
                             val txBytes = Base64.decode(txBytesBase64, Base64.NO_WRAP)
-                            val fragments = fragmentsRaw.map { f ->
-                                FragmentFFI(
-                                    transactionId = f["transactionId"] as String,
-                                    fragmentIndex = (f["fragmentIndex"] as Number).toInt(),
-                                    totalFragments = (f["totalFragments"] as Number).toInt(),
-                                    dataBase64 = f["dataBase64"] as String
-                                )
-                            }
+                            val priorityStr = call.argument<String>("priority") ?: "NORMAL"
                             val priority = try { Priority.valueOf(priorityStr) } catch (_: Exception) { Priority.NORMAL }
-                            sdk?.pushOutboundTransaction(txBytes, txId, fragments, priority)?.fold(
-                                onSuccess = { result.success(true) },
-                                onFailure = { throw it }
-                            ) ?: throw IllegalStateException("SDK not initialized")
+
+                            // Route through BleService so the sending loop is triggered immediately
+                            val service = bleService
+                            if (service != null) {
+                                service.queueSignedTransaction(txBytes, priority).fold(
+                                    onSuccess = { result.success(true) },
+                                    onFailure = { throw it }
+                                )
+                            } else {
+                                // Fallback: queue via SDK directly (sending loop picks up on next poll)
+                                val txId = call.argument<String>("txId")
+                                    ?: throw IllegalArgumentException("txId is required")
+                                val fragmentsRaw = call.argument<List<Map<String, Any>>>("fragments")
+                                    ?: throw IllegalArgumentException("fragments is required")
+                                val fragments = fragmentsRaw.map { f ->
+                                    FragmentFFI(
+                                        transactionId = f["transactionId"] as String,
+                                        fragmentIndex = (f["fragmentIndex"] as Number).toInt(),
+                                        totalFragments = (f["totalFragments"] as Number).toInt(),
+                                        dataBase64 = f["dataBase64"] as String
+                                    )
+                                }
+                                sdk?.pushOutboundTransaction(txBytes, txId, fragments, priority)?.fold(
+                                    onSuccess = { result.success(true) },
+                                    onFailure = { throw it }
+                                ) ?: throw IllegalStateException("SDK not initialized")
+                            }
                         }
                         "acceptAndQueueExternalTransaction" -> {
                             val base64SignedTx = call.argument<String>("base64SignedTx")
                                 ?: throw IllegalArgumentException("base64SignedTx is required")
-                            val maxPayload = call.argument<Int>("maxPayload")
-                            sdk?.acceptAndQueueExternalTransaction(base64SignedTx, maxPayload)?.fold(
-                                onSuccess = { result.success(it) },
-                                onFailure = { throw it }
-                            ) ?: throw IllegalStateException("SDK not initialized")
+
+                            // Route through BleService for immediate BLE delivery
+                            val service = bleService
+                            if (service != null) {
+                                val txBytes = Base64.decode(base64SignedTx, Base64.NO_WRAP)
+                                service.queueSignedTransaction(txBytes, Priority.NORMAL).fold(
+                                    onSuccess = {
+                                        // Return a txId (SHA-256 hash of the bytes)
+                                        val digest = java.security.MessageDigest.getInstance("SHA-256")
+                                        val txId = digest.digest(txBytes).joinToString("") { "%02x".format(it) }
+                                        result.success(txId)
+                                    },
+                                    onFailure = { throw it }
+                                )
+                            } else {
+                                // Fallback: use SDK directly
+                                val maxPayload = call.argument<Int>("maxPayload")
+                                sdk?.acceptAndQueueExternalTransaction(base64SignedTx, maxPayload)?.fold(
+                                    onSuccess = { result.success(it) },
+                                    onFailure = { throw it }
+                                ) ?: throw IllegalStateException("SDK not initialized")
+                            }
                         }
                         "popOutboundTransaction" -> {
                             sdk?.popOutboundTransaction()?.fold(
@@ -858,6 +1021,10 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 onFailure = { throw it }
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
+
+                        // =============================================================
+                        // Confirmations
+                        // =============================================================
                         "queueConfirmation" -> {
                             val txId = call.argument<String>("txId")
                                 ?: throw IllegalArgumentException("txId is required")
@@ -922,7 +1089,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             ) ?: throw IllegalStateException("SDK not initialized")
                         }
 
+                        // =============================================================
                         // Queue Persistence
+                        // =============================================================
                         "saveQueues" -> {
                             sdk?.saveQueues()?.fold(
                                 onSuccess = { result.success(true) },
@@ -971,24 +1140,23 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
             }
         }
     }
+
+    // =========================================================================
+    // Permission helpers
+    // =========================================================================
     
-    // Get required permissions based on Android version
     private fun getRequiredPermissions(): List<String> {
         val permissions = mutableListOf<String>()
-        val act = activity ?: return permissions
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+ (API 31+) requires runtime permissions
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            // Android 11 and below
             permissions.add(Manifest.permission.BLUETOOTH)
             permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
         }
         
-        // Location permission may be needed for BLE scanning on older versions
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
             permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -997,20 +1165,18 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
         return permissions
     }
     
-    // Check permission status
     private fun checkPermissionsStatus(permissions: List<String>): Map<String, String> {
         val status = mutableMapOf<String, String>()
-        val act = activity ?: return status
+        val ctx = activity ?: applicationContext ?: return status
         
         for (permission in permissions) {
-            val granted = ContextCompat.checkSelfPermission(act, permission) == PackageManager.PERMISSION_GRANTED
+            val granted = ContextCompat.checkSelfPermission(ctx, permission) == PackageManager.PERMISSION_GRANTED
             status[permission] = if (granted) "granted" else "denied"
         }
         
         return status
     }
     
-    // Request permissions
     private fun requestPermissions(result: MethodChannel.Result) {
         val act = activity
         if (act == null) {
@@ -1024,16 +1190,13 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
         }
         
         if (permissionsToRequest.isEmpty()) {
-            // All permissions already granted
             val status = checkPermissionsStatus(permissions.toList())
             result.success(status)
             return
         }
         
-        // Store the result callback
         pendingPermissionResult = result
         
-        // Request permissions
         ActivityCompat.requestPermissions(
             act,
             permissionsToRequest.toTypedArray(),
@@ -1041,30 +1204,27 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
         )
     }
     
-    // Check battery optimization status
     private fun checkBatteryOptimization(result: MethodChannel.Result) {
-        val act = activity
-        if (act == null) {
-            result.error("NO_ACTIVITY", "Activity not available", null)
+        val ctx = activity ?: applicationContext
+        if (ctx == null) {
+            result.error("NO_CONTEXT", "Context not available", null)
             return
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                val powerManager = act.getSystemService(Activity.POWER_SERVICE) as PowerManager
-                val packageName = act.packageName
+                val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val packageName = ctx.packageName
                 val isIgnoring = powerManager.isIgnoringBatteryOptimizations(packageName)
                 result.success(isIgnoring)
             } catch (e: Exception) {
                 result.error("BATTERY_CHECK_ERROR", "Failed to check battery optimization: ${e.message}", null)
             }
         } else {
-            // Android M (API 23) and below don't have battery optimization
             result.success(true)
         }
     }
     
-    // Request battery optimization exemption
     private fun requestBatteryOptimization(result: MethodChannel.Result) {
         val act = activity
         if (act == null) {
@@ -1084,10 +1244,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                     act.startActivity(intent)
                     result.success(true)
                 } else {
-                    result.success(true) // Already exempted
+                    result.success(true)
                 }
             } catch (e: Exception) {
-                // Fallback: Open battery settings directly
                 try {
                     val settingsIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                     act.startActivity(settingsIntent)
@@ -1097,12 +1256,10 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                 }
             }
         } else {
-            // Android M (API 23) and below don't have battery optimization
             result.success(true)
         }
     }
     
-    // Helper function to handle async SDK calls
     private fun handleAsyncCall(result: MethodChannel.Result, block: suspend () -> Unit) {
         if (!isInitialized || sdk == null) {
             result.error("NOT_INITIALIZED", "SDK must be initialized", null)
