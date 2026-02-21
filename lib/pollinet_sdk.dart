@@ -1558,7 +1558,7 @@ class Confirmation {
   }
 
   factory Confirmation.fromMap(Map<String, dynamic> map) {
-    final statusMap = map['status'] as Map<String, dynamic>;
+    final statusMap = Map<String, dynamic>.from(map['status'] as Map);
     final statusType = statusMap.containsKey('SUCCESS')
         ? ConfirmationStatusType.success
         : ConfirmationStatusType.failed;

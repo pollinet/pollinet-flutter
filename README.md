@@ -35,10 +35,10 @@ Before you start, make sure you have:
 |------------|---------|------|
 | **minSdk 29** | Android 10+ | Native SDK requirement |
 | **RPC URL** | Solana RPC endpoint | Transaction creation needs blockchain data |
-| **BLE Tick** | `tick()` every 1 second | Drives BLE scanning/advertising |
+| **BLE Tick** | `tick()` every 1 second | Processes protocol state machine & detects completed transactions |
 | **Permissions** | Runtime BLE permissions | Android 12+ security |
 
-⚠️ **Most Common Mistake**: Forgetting to call `tick()` periodically → No BLE activity!
+⚠️ **Most Common Mistake**: Forgetting to call `tick()` periodically → Transactions won't complete processing!
 
 ---
 
@@ -219,15 +219,16 @@ Future<bool> _initializeSDK() async {
 }
 ```
 
-#### Step 4: Start BLE Protocol Tick (REQUIRED)
+#### Step 4: Start Protocol Tick (REQUIRED)
 
-**CRITICAL**: The BLE protocol requires a periodic tick to process scanning/advertising:
+**CRITICAL**: The protocol state machine requires periodic tick to process transactions:
 
 ```dart
 Timer? _bleTickTimer;
 
-void _startBleProtocol() {
-  // Call tick() every 1 second to drive the BLE protocol
+void _startProtocolTick() {
+  // Call tick() every 1 second to process the protocol state machine
+  // Note: BLE scanning/advertising happens automatically in the native SDK
   _bleTickTimer = Timer.periodic(
     const Duration(seconds: 1),
     (timer) async {
@@ -242,13 +243,13 @@ void _startBleProtocol() {
     },
   );
   
-  print('✅ BLE protocol tick started');
+  print('✅ Protocol tick started');
 }
 
-void _stopBleProtocol() {
+void _stopProtocolTick() {
   _bleTickTimer?.cancel();
   _bleTickTimer = null;
-  print('🛑 BLE protocol tick stopped');
+  print('🛑 Protocol tick stopped');
 }
 
 @override
@@ -863,19 +864,22 @@ final config = SdkConfig(
 await PollinetSdk.initialize(config: config);
 ```
 
-#### 2. No BLE Activity / Not Scanning
+#### 2. Transactions Not Completing
 
-**Problem**: SDK initialized but no BLE scanning/advertising happening.
+**Problem**: SDK initialized but transactions never complete/get detected.
 
 **Cause**: Missing periodic `tick()` calls.
 
-**Solution**: The BLE protocol REQUIRES a 1-second tick:
+**Solution**: The protocol state machine requires a 1-second tick to process transactions:
 
 ```dart
 Timer.periodic(const Duration(seconds: 1), (_) async {
-  await PollinetSdk.tick();
+  final completedTxIds = await PollinetSdk.tick();
+  // Process completed transactions
 });
 ```
+
+**Note**: BLE scanning/advertising happens automatically in the native SDK, but transaction processing needs `tick()`.
 
 #### 3. Permission Denied (Android 12+)
 
@@ -1017,18 +1021,27 @@ await PollinetSdk.initialize(
 );
 ```
 
-### 2. Always Start BLE Tick After Init
+### 2. Always Start Protocol Tick After Init
 
 ```dart
 // Initialize SDK
 await PollinetSdk.initialize(config: config);
 
-// Start tick immediately after
-_bleTickTimer = Timer.periodic(
+// Start tick immediately after to process protocol state machine
+_tickTimer = Timer.periodic(
   const Duration(seconds: 1),
-  (_) async => await PollinetSdk.tick(),
+  (_) async {
+    final completedTxIds = await PollinetSdk.tick();
+    // Handle completed transactions
+  },
 );
 ```
+
+**Why?** While BLE scanning/advertising happens automatically, `tick()` is needed to:
+- Process the protocol state machine
+- Detect completed transaction reassembly
+- Flush internal queues
+- Maintain protocol health
 
 ### 3. Handle Permissions Gracefully
 
