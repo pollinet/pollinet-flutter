@@ -1,33 +1,74 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- BLE Permissions -->
-    <!-- Android 11 and below -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- Android 12+ (API 31+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- BLE permissions — Android 11 and below -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- BLE permissions — Android 12+ (API 31+) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Location permissions (needed for BLE scanning on Android 11 and below) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Location (needed for BLE scanning on Android 11 and below) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Foreground service for BLE mesh operations -->
+    <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Auto-start after reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Foreground-service notification on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Battery optimization exemption for background BLE -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- BLE features -->
+    <!-- Signature-level permission so only same-signed apps can bind / control the service -->
+    <permission
+        android:name="xyz.pollinet.sdk.permission.BIND_POLLINET_SERVICE"
+        android:protectionLevel="signature" />
+
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application>
-        <!-- BLE Foreground Service from pollinet-sdk -->
+
+        <!-- Pollinet SDK BLE Service — foreground service for mesh networking.
+             Exported so Pollistem or other same-signed apps can start BLE via intent. -->
         <service
             android:name="xyz.pollinet.sdk.BleService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice"
+            android:exported="true"
+            android:permission="xyz.pollinet.sdk.permission.BIND_POLLINET_SERVICE">
+            <intent-filter>
+                <action android:name="xyz.pollinet.sdk.action.START" />
+                <action android:name="xyz.pollinet.sdk.action.STOP" />
+            </intent-filter>
+        </service>
+
+        <!-- Bridge receiver: lets other same-signed apps queue transactions and start the service -->
+        <receiver
+            android:name="xyz.pollinet.sdk.flutter.PollinetServiceBridge"
+            android:exported="true"
+            android:permission="xyz.pollinet.sdk.permission.BIND_POLLINET_SERVICE">
+            <intent-filter>
+                <action android:name="xyz.pollinet.sdk.action.QUEUE_TRANSACTION" />
+                <action android:name="xyz.pollinet.sdk.action.START_SERVICE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Re-start BLE service after device reboot -->
+        <receiver
+            android:name="xyz.pollinet.sdk.flutter.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>
