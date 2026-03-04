@@ -1161,6 +1161,11 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
             permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
+
+        // Android 13+ requires POST_NOTIFICATIONS for the foreground service notification
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         
         return permissions
     }
