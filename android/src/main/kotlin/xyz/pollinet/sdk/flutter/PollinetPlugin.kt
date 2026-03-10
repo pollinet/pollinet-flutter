@@ -19,17 +19,22 @@ import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import xyz.pollinet.sdk.*
 
 class PollinetPlugin : FlutterPlugin, ActivityAware {
     private lateinit var channel: MethodChannel
+    private lateinit var confirmationEventChannel: EventChannel
+    private var confirmationSink: EventChannel.EventSink? = null
     private var activity: Activity? = null
     private var applicationContext: Context? = null
     private var sdk: PolliNetSDK? = null
@@ -39,6 +44,11 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
 
     private val PERMISSION_REQUEST_CODE = 1001
     private var pendingPermissionResult: MethodChannel.Result? = null
+
+    // Track transactions sent from this device so we can match confirmations
+    private val sentTxIds = mutableSetOf<String>()
+    private val processedLogEntries = LinkedHashSet<String>(128)
+    private var logObserverJob: Job? = null
 
     // Deferred that completes when BleService binds
     private var serviceDeferred = CompletableDeferred<BleService>()
@@ -54,6 +64,7 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                 if (!serviceDeferred.isCompleted) {
                     serviceDeferred.complete(service)
                 }
+                observeBleLogsForConfirmations(service)
             } else {
                 android.util.Log.e("PollinetPlugin", "Failed to get BleService from binder")
             }
@@ -63,6 +74,7 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
             android.util.Log.w("PollinetPlugin", "BleService disconnected")
             bleService = null
             serviceBound = false
+            logObserverJob?.cancel()
             serviceDeferred = CompletableDeferred()
         }
     }
@@ -73,10 +85,22 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
         channel.setMethodCallHandler { call, result ->
             handleMethodCall(call, result)
         }
+
+        confirmationEventChannel = EventChannel(binding.binaryMessenger, "pollinet_sdk/confirmations")
+        confirmationEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                confirmationSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                confirmationSink = null
+            }
+        })
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        confirmationEventChannel.setStreamHandler(null)
+        logObserverJob?.cancel()
         unbindBleService()
         applicationContext = null
     }
@@ -161,6 +185,67 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
      */
     private fun getSdkFromBleService(): PolliNetSDK? {
         return bleService?.sdk
+    }
+
+    /**
+     * Observe BleService logs for received BLE confirmations.
+     * When a confirmation arrives whose txId is in [sentTxIds],
+     * push it through the EventChannel to Flutter.
+     */
+    private fun observeBleLogsForConfirmations(service: BleService) {
+        logObserverJob?.cancel()
+        logObserverJob = CoroutineScope(Dispatchers.IO).launch {
+            service.logs.collect { logList ->
+                for (entry in logList) {
+                    if (entry in processedLogEntries) continue
+                    processedLogEntries.add(entry)
+
+                    if (!entry.contains("Base64:")) continue
+
+                    try {
+                        val base64Str = entry.substringAfter("Base64:").trim()
+                        val decoded = String(Base64.decode(base64Str, Base64.NO_WRAP), Charsets.UTF_8)
+
+                        if (!decoded.startsWith("{") || !decoded.contains("\"txId\"") || !decoded.contains("\"status\"")) continue
+
+                        val json = JSONObject(decoded)
+                        val txId = json.getString("txId")
+                        val statusObj = json.getJSONObject("status")
+                        val statusType = statusObj.getString("type")
+                        val signature = if (statusType == "SUCCESS") statusObj.optString("signature", null) else null
+                        val error = if (statusType == "FAILED") statusObj.optString("error", null) else null
+                        val timestamp = json.optLong("timestamp", 0)
+                        val relayCount = json.optInt("relayCount", 0)
+                        val isOurs = sentTxIds.contains(txId)
+
+                        val confirmationMap = hashMapOf<String, Any?>(
+                            "txId" to txId,
+                            "statusType" to statusType,
+                            "signature" to signature,
+                            "error" to error,
+                            "timestamp" to timestamp,
+                            "relayCount" to relayCount,
+                            "isOurs" to isOurs,
+                        )
+
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            confirmationSink?.success(confirmationMap)
+                        }
+
+                        if (isOurs) {
+                            android.util.Log.d("PollinetPlugin", "Confirmation for OUR tx $txId: $statusType")
+                        }
+                    } catch (_: Exception) {
+                        // Not a valid confirmation payload — skip
+                    }
+                }
+
+                if (processedLogEntries.size > 300) {
+                    val iter = processedLogEntries.iterator()
+                    repeat(processedLogEntries.size - 300) { iter.next(); iter.remove() }
+                }
+            }
+        }
     }
 
     // =========================================================================
@@ -948,9 +1033,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 val txBytes = Base64.decode(base64SignedTx, Base64.NO_WRAP)
                                 service.queueSignedTransaction(txBytes, Priority.NORMAL).fold(
                                     onSuccess = {
-                                        // Return a txId (SHA-256 hash of the bytes)
                                         val digest = java.security.MessageDigest.getInstance("SHA-256")
                                         val txId = digest.digest(txBytes).joinToString("") { "%02x".format(it) }
+                                        sentTxIds.add(txId)
                                         result.success(txId)
                                     },
                                     onFailure = { throw it }
@@ -959,7 +1044,10 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 // Fallback: use SDK directly
                                 val maxPayload = call.argument<Int>("maxPayload")
                                 sdk?.acceptAndQueueExternalTransaction(base64SignedTx, maxPayload)?.fold(
-                                    onSuccess = { result.success(it) },
+                                    onSuccess = { txId ->
+                                        sentTxIds.add(txId)
+                                        result.success(txId)
+                                    },
                                     onFailure = { throw it }
                                 ) ?: throw IllegalStateException("SDK not initialized")
                             }

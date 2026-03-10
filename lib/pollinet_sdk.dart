@@ -1,5 +1,7 @@
 library pollinet_sdk;
 
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 /// Pollinet SDK for Flutter
@@ -8,6 +10,21 @@ import 'package:flutter/services.dart';
 /// propagation over Bluetooth Low Energy (BLE) mesh networks.
 class PollinetSdk {
   static const MethodChannel _channel = MethodChannel('pollinet_sdk');
+  static const EventChannel _confirmationChannel =
+      EventChannel('pollinet_sdk/confirmations');
+
+  static Stream<BleConfirmationEvent>? _confirmationStream;
+
+  /// Stream of BLE confirmation events received from the mesh network.
+  /// Each event includes [isOurs] to indicate whether this device originated
+  /// the transaction.
+  static Stream<BleConfirmationEvent> get confirmationStream {
+    _confirmationStream ??= _confirmationChannel
+        .receiveBroadcastStream()
+        .map((event) =>
+            BleConfirmationEvent.fromMap(Map<String, dynamic>.from(event)));
+    return _confirmationStream!;
+  }
 
   /// Initialize the Pollinet SDK
   /// 
@@ -1623,6 +1640,44 @@ class CleanupExpiredResponse {
     return CleanupExpiredResponse(
       confirmationsCleaned: map['confirmationsCleaned'] as int? ?? 0,
       retriesCleaned: map['retriesCleaned'] as int? ?? 0,
+    );
+  }
+}
+
+/// A BLE confirmation event received from the mesh network.
+class BleConfirmationEvent {
+  final String txId;
+  final String statusType; // "SUCCESS" or "FAILED"
+  final String? signature;
+  final String? error;
+  final int timestamp;
+  final int relayCount;
+
+  /// Whether this device originated the transaction.
+  final bool isOurs;
+
+  BleConfirmationEvent({
+    required this.txId,
+    required this.statusType,
+    this.signature,
+    this.error,
+    required this.timestamp,
+    required this.relayCount,
+    required this.isOurs,
+  });
+
+  bool get isSuccess => statusType == 'SUCCESS';
+  bool get isFailed => statusType == 'FAILED';
+
+  factory BleConfirmationEvent.fromMap(Map<String, dynamic> map) {
+    return BleConfirmationEvent(
+      txId: map['txId'] as String,
+      statusType: map['statusType'] as String,
+      signature: map['signature'] as String?,
+      error: map['error'] as String?,
+      timestamp: (map['timestamp'] as num?)?.toInt() ?? 0,
+      relayCount: (map['relayCount'] as num?)?.toInt() ?? 0,
+      isOurs: map['isOurs'] as bool? ?? false,
     );
   }
 }
