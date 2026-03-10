@@ -218,22 +218,24 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                         val relayCount = json.optInt("relayCount", 0)
                         val isOurs = sentTxIds.contains(txId)
 
-                        val confirmationMap = hashMapOf<String, Any?>(
+                        val confirmationMap = hashMapOf<String, Any>(
                             "txId" to txId,
                             "statusType" to statusType,
-                            "signature" to signature,
-                            "error" to error,
                             "timestamp" to timestamp,
                             "relayCount" to relayCount,
                             "isOurs" to isOurs,
                         )
+                        if (signature != null) confirmationMap["signature"] = signature
+                        if (error != null) confirmationMap["error"] = error
 
-                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            confirmationSink?.success(confirmationMap)
-                        }
-
-                        if (isOurs) {
-                            android.util.Log.d("PollinetPlugin", "Confirmation for OUR tx $txId: $statusType")
+                        val sink = confirmationSink
+                        if (sink != null) {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                sink.success(confirmationMap)
+                            }
+                            android.util.Log.d("PollinetPlugin", "EventChannel: sent confirmation to Dart for tx ${txId.take(8)} (ours=$isOurs)")
+                        } else {
+                            android.util.Log.w("PollinetPlugin", "EventChannel: confirmationSink is NULL - Dart not listening yet")
                         }
                     } catch (_: Exception) {
                         // Not a valid confirmation payload — skip
