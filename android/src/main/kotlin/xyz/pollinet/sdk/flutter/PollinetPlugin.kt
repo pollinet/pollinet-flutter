@@ -278,7 +278,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 rpcUrl = configMap["rpcUrl"] as? String,
                                 enableLogging = configMap["enableLogging"] as? Boolean ?: true,
                                 logLevel = configMap["logLevel"] as? String ?: "info",
-                                storageDirectory = configMap["storageDirectory"] as? String
+                                storageDirectory = configMap["storageDirectory"] as? String,
+                                encryptionKey = configMap["encryptionKey"] as? String,
+                                walletAddress = configMap["walletAddress"] as? String
                             )
                         } else {
                             SdkConfig(
@@ -286,7 +288,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 rpcUrl = null,
                                 enableLogging = true,
                                 logLevel = "info",
-                                storageDirectory = null
+                                storageDirectory = null,
+                                encryptionKey = null,
+                                walletAddress = null
                             )
                         }
 
@@ -358,6 +362,34 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
             }
             "requestBatteryOptimization" -> {
                 requestBatteryOptimization(result)
+            }
+            "getBleStatus" -> {
+                try {
+                    val service = bleService
+                    if (service == null) {
+                        result.success(
+                            mapOf(
+                                "connectionState" to "DISCONNECTED",
+                                "isAdvertising" to false,
+                                "isScanning" to false,
+                            )
+                        )
+                    } else {
+                        val state = service.connectionState.value.name
+                        val advertising = service.isAdvertising.value
+                        val scanning = service.isScanning.value
+                        result.success(
+                            mapOf(
+                                "connectionState" to state,
+                                "isAdvertising" to advertising,
+                                "isScanning" to scanning,
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("PollinetPlugin", "Failed to get BLE status: ${e.message}", e)
+                    result.error("BLE_STATUS_ERROR", "Failed to get BLE status: ${e.message}", null)
+                }
             }
             else -> {
                 handleAsyncCall(result) {
@@ -495,7 +527,6 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                             val resultList = nonceTxs.map { tx ->
                                                 mapOf(
                                                     "unsignedTransactionBase64" to tx.unsignedTransactionBase64,
-                                                    "nonceKeypairBase64" to tx.nonceKeypairBase64,
                                                     "noncePubkey" to tx.noncePubkey
                                                 )
                                             }
@@ -612,8 +643,6 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                                 try {
                                     val senderKeypairBase64 = call.argument<String>("senderKeypair")
                                         ?: throw IllegalArgumentException("senderKeypair is required")
-                                    val nonceAuthorityBase64 = call.argument<String>("nonceAuthorityKeypair")
-                                        ?: throw IllegalArgumentException("nonceAuthorityKeypair is required")
                                     val recipient = call.argument<String>("recipient")
                                         ?: throw IllegalArgumentException("recipient is required")
                                     val amount = call.argument<Int>("amount")?.toLong()
@@ -621,7 +650,6 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
 
                                     sdk?.createOfflineTransaction(
                                         senderKeypair = Base64.decode(senderKeypairBase64, Base64.NO_WRAP),
-                                        nonceAuthorityKeypair = Base64.decode(nonceAuthorityBase64, Base64.NO_WRAP),
                                         recipient = recipient,
                                         amount = amount
                                     )?.fold(
@@ -763,20 +791,9 @@ class PollinetPlugin : FlutterPlugin, ActivityAware {
                             }
                         }
                         "addNonceSignature" -> {
-                            CoroutineScope(Dispatchers.IO).launch {
-                                try {
-                                    val payerSignedTx = call.argument<String>("payerSignedTransactionBase64")
-                                        ?: throw IllegalArgumentException("payerSignedTransactionBase64 is required")
-                                    val nonceKeypairBase64 = call.argument<List<String>>("nonceKeypairBase64")
-                                        ?: throw IllegalArgumentException("nonceKeypairBase64 is required")
-                                    sdk?.addNonceSignature(payerSignedTx, nonceKeypairBase64)?.fold(
-                                        onSuccess = { result.success(it) },
-                                        onFailure = { result.error("SIGN_ERROR", it.message, null) }
-                                    ) ?: result.error("NOT_INITIALIZED", "SDK not initialized", null)
-                                } catch (e: Exception) {
-                                    result.error("SIGN_ERROR", e.message, null)
-                                }
-                            }
+                            // Removed in SDK v0.1.3 — nonce signatures are now embedded at
+                            // transaction creation time via createUnsignedNonceTransactions.
+                            result.error("DEPRECATED", "addNonceSignature is no longer supported in SDK v0.1.3. Nonce signatures are embedded at creation time.", null)
                         }
                         "refreshBlockhashInUnsignedTransaction" -> {
                             CoroutineScope(Dispatchers.IO).launch {

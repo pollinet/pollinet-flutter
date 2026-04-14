@@ -2,7 +2,7 @@ name: pollinet_flutter
 description: "Flutter app for Pollinet SDK - offline Solana transaction propagation over BLE mesh networks"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.1.5+1
 
 environment:
   sdk: ^3.0.0

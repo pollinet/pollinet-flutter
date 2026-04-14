@@ -131,6 +131,29 @@ class PollinetSdk {
     }
   }
 
+  /// Get the current BLE status from the native Pollinet SDK.
+  ///
+  /// This reports the connection state and whether Pollinet is currently
+  /// advertising and/or scanning. Use this for diagnostics and UI only;
+  /// it is always safe to queue transactions regardless of the current
+  /// connection state — Pollinet will relay them when possible.
+  static Future<BleStatus> getBleStatus() async {
+    try {
+      final result =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getBleStatus');
+      if (result == null) {
+        return const BleStatus(
+          connectionState: 'DISCONNECTED',
+          isAdvertising: false,
+          isScanning: false,
+        );
+      }
+      return BleStatus.fromMap(Map<String, dynamic>.from(result));
+    } on PlatformException catch (e) {
+      throw PollinetException(e.code, e.message ?? 'Unknown error');
+    }
+  }
+
   // =========================================================================
   // Transport API
   // =========================================================================
@@ -1678,6 +1701,34 @@ class BleConfirmationEvent {
       timestamp: (map['timestamp'] as num?)?.toInt() ?? 0,
       relayCount: (map['relayCount'] as num?)?.toInt() ?? 0,
       isOurs: map['isOurs'] as bool? ?? false,
+    );
+  }
+}
+
+/// Snapshot of Pollinet BLE transport status.
+class BleStatus {
+  /// One of: DISCONNECTED, SCANNING, CONNECTING, CONNECTED, ERROR.
+  final String connectionState;
+
+  /// Whether Pollinet is currently advertising over BLE.
+  final bool isAdvertising;
+
+  /// Whether Pollinet is currently scanning for peers.
+  final bool isScanning;
+
+  const BleStatus({
+    required this.connectionState,
+    required this.isAdvertising,
+    required this.isScanning,
+  });
+
+  bool get isConnected => connectionState == 'CONNECTED';
+
+  factory BleStatus.fromMap(Map<String, dynamic> map) {
+    return BleStatus(
+      connectionState: map['connectionState'] as String? ?? 'DISCONNECTED',
+      isAdvertising: map['isAdvertising'] as bool? ?? false,
+      isScanning: map['isScanning'] as bool? ?? false,
     );
   }
 }
