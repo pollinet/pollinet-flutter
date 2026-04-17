@@ -1059,6 +1059,8 @@ class SdkConfig {
   final bool enableLogging;
   final String? logLevel;
   final String? storageDirectory;
+  final String? encryptionKey;
+  final String? walletAddress;
 
   SdkConfig({
     this.version = 1,
@@ -1066,6 +1068,8 @@ class SdkConfig {
     this.enableLogging = true,
     this.logLevel,
     this.storageDirectory,
+    this.encryptionKey,
+    this.walletAddress,
   });
 
   Map<String, dynamic> toMap() {
@@ -1075,6 +1079,8 @@ class SdkConfig {
       'enableLogging': enableLogging,
       if (logLevel != null) 'logLevel': logLevel,
       if (storageDirectory != null) 'storageDirectory': storageDirectory,
+      if (encryptionKey != null) 'encryptionKey': encryptionKey,
+      if (walletAddress != null) 'walletAddress': walletAddress,
     };
   }
 }
